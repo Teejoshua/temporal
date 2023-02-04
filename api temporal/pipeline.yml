@@ -1,61 +1,59 @@
-name: Build and Test
-on:
-  push:
-    branches:
-      - master
-  pull_request:
+image: golang:1.19-buster
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    container: golang:1.19-buster
-    steps:
-      - name: Set up Go
-        uses: actions/setup-go@v1
-        with:
-          go-version: 1.19
+before_script:
+  - echo ':before_script'
+  - cat /etc/os-release
+  - echo 'end : before_script'
 
-      - name: Check out code
-        uses: actions/checkout@v1
+stages:
+  - test 
+  - build 
+  - quality_check 
+  - deploy 
 
-      - name: Lint Go Code
-        run: |
-          go get -u golang.org/x/lint/golint
-          make lint
 
-  test:
-    name: Test
-    runs-on: ubuntu-latest
-    steps:
-      - name: Set up Go
-        uses: actions/setup-go@v1
-        with:
-          go-version: 1.19
+test-backend:
+  stage: test 
+  script: 
+    - CGO_ENABLED=O go test ./... -coverprofile=coverage-report.out
+    -  go tool cover -html=coverage-report.out -o coverage-report.html
+    -  go tool cover -func=coverage-report.out
+artifacts:
+  paths:
+    - coverage-report.html
+  expire_in: 1 days 
+coverage: "/\\(statements\\)\\s+\\d+.?\\d+%/"
 
-      - name: Check out code
-        uses: actions/checkout@v1
+build-backend:
+  stage: build 
+  script: 
+    - go build -o bin/cra-generator -v .
+  artifacts:
+    paths:
+      - bin/cra-generator
+    expire_in: 1 days 
 
-      - name: Run Unit tests.
-        run: make test-coverage
+sast:
+  stage: quality_check
+  before_script:
+    -echo 'Static Application Security Testing (SAST) - from source code'
+  timeout: 10m
+include:
+  - template: SAST.ci.yml
 
-      - name: Upload Coverage report to CodeCov
-        uses: codecov/codecov-action@v1.0.0
-        with:
-          token: ${{secrets.CODECOV_TOKEN}}
-          file: ./coverage.txt
+pages:
+  stage: deploy 
+  script:
+    - echo 'Cleaning old pages'
+    - rm -rf public 
+    - ls -la 
+    - ls -la ./public
 
-build:
-    name: Build
-    runs-on: ubuntu-latest
-    needs: [lint, test]
-    steps:
-      - name: Set up Go
-        uses: actions/setup-go@v1
-        with:
-          go-version: 1.19
+  artifacts: 
+    paths:
+      - public 
+    expire_in: 30 days 
+  only:
+    - master 
+    - develop     
 
-      - name: Check out code
-        uses: actions/checkout@v1
-
-      - name: Build
-        run: make build
